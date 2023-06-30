@@ -1,0 +1,456 @@
+---
+title: "auto insurance ML classification models"
+author: "Josh Bicer"
+date: "2023-06-01"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r include=FALSE}
+library(knitr)
+library(triangle)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+options(scipen = 6)
+```
+### Part 1: Install libraries and Read in Data
+The sections below are used to install the required packages and libraries used for this script and to read in the training and testing datasets for the model.
+
+```{r}
+# Install necessary packages and libraries
+
+#install.packages("Amelia")
+#install.packages("e1071")
+#install.packages("psych")
+#install.packages("class")
+#install.packages("dplyr")
+#install.packages("ROCR")
+#install.packages("corrplot")
+#install.packages("car")
+#install.packages("leaps")
+#install.packages("MASS")
+#install.packages('glm2')
+#install.packages("pROC")
+#install.packages("InformationValue")
+#install.packages("pbkrtest")
+#install.packages("caret")
+#install.packages("party")
+#install.packages("ipred")
+#install.packages("gbm")
+library(class)
+library(dplyr)
+library(zoo)
+library(ROCR)
+library(corrplot)
+library(car)
+library(leaps)
+library(MASS)
+library(glm2)
+library(pROC)
+library(InformationValue)
+library(pbkrtest)
+library(caret)
+library(Amelia)
+library(e1071)
+library(psych)
+library(party)
+library(ipred)
+library(rpart) 
+library(randomForest)
+library(gbm)
+```
+
+```{r}
+# Import data from CSV for training and testing data sets
+data = read.csv("auto_insurance_training.csv")
+test = read.csv("auto_insurance_test.csv")
+
+
+# Read in variables as factors or numeric in training data set
+data$INDEX = as.factor(data$INDEX)
+data$TARGET_FLAG = as.factor(data$TARGET_FLAG)
+data$SEX = as.factor(data$SEX)
+data$EDUCATION = as.factor(data$EDUCATION)
+data$PARENT1 = as.factor(data$PARENT1)
+data$INCOME = suppressWarnings(as.numeric(gsub("[^0-9.]", "", data$INCOME)))
+data$HOME_VAL = suppressWarnings(as.numeric(gsub("[^0-9.]", "", data$HOME_VAL)))
+data$MSTATUS = as.factor(data$MSTATUS)
+data$REVOKED = as.factor(data$REVOKED)
+data$RED_CAR = as.factor(ifelse(data$RED_CAR=="yes", 1, 0))
+data$URBANICITY = ifelse(data$URBANICITY == "Highly Urban/ Urban", "Urban", "Rural")
+data$URBANICITY = as.factor(data$URBANICITY)
+data$JOB = as.factor(data$JOB)
+data$CAR_USE = as.factor(data$CAR_USE)
+data$CAR_TYPE = as.factor(data$CAR_TYPE)
+data$DO_KIDS_DRIVE = as.factor(ifelse(data$KIDSDRIV > 0, 1, 0 ))
+data$OLDCLAIM = suppressWarnings(as.numeric(gsub("[^0-9.]", "", data$HOME_VAL)))
+data$BLUEBOOK = suppressWarnings(as.numeric(gsub("[^0-9.]", "", data$BLUEBOOK)))
+
+# Read in variables as factor or numeric for testing data set
+test$INDEX = as.factor(test$INDEX)
+test$TARGET_FLAG = as.factor(test$TARGET_FLAG)
+test$SEX = as.factor(test$SEX)
+test$EDUCATION = as.factor(test$EDUCATION)
+test$PARENT1 = as.factor(test$PARENT1)
+test$INCOME = suppressWarnings(as.numeric(gsub("[^0-9.]", "", test$INCOME)))
+test$HOME_VAL = suppressWarnings(as.numeric(gsub("[^0-9.]", "", test$HOME_VAL)))
+test$MSTATUS = as.factor(test$MSTATUS)
+test$REVOKED = as.factor(test$REVOKED)
+test$RED_CAR = as.factor(ifelse(test$RED_CAR=="yes", 1, 0))
+test$URBANICITY = ifelse(test$URBANICITY == "Highly Urban/ Urban", "Urban", "Rural")
+test$URBANICITY = as.factor(test$URBANICITY)
+test$JOB = as.factor(test$JOB)
+test$CAR_USE = as.factor(test$CAR_USE)
+test$CAR_TYPE = as.factor(test$CAR_TYPE)
+test$DO_KIDS_DRIVE = as.factor(ifelse(test$KIDSDRIV > 0, 1, 0 ))
+test$OLDCLAIM = suppressWarnings(as.numeric(gsub("[^0-9.]", "", test$HOME_VAL)))
+test$BLUEBOOK = suppressWarnings(as.numeric(gsub("[^0-9.]", "", test$BLUEBOOK)))
+```
+### Part 2: Data Exploration
+Part 2 of the script explores the data by creating histograms, box plots, and correlation plots of the data. This is meant to gain a better understand of the variables used for the model and how they interact.
+
+The dataset is available online and features a series of auto insurance customers at a given company. The Target Flag represents a [0,1] binary outcome of whether the driver was involved in an accident or not.
+
+```{r}
+### Create histograms and boxplots for response variable and inputs
+
+# Target Amount represents auto insurance claim amount as target variable
+par(mfrow=c(1,2))
+hist(data$TARGET_AMT, col = "red", xlab = "TARGET_AMT", main = "Histogram of TARGET_AMT")
+boxplot(data$TARGET_AMT, col = "orangered", main = "Boxplot of TARGET_AMT")
+par(mfrow=c(1,1))
+
+# Age and Years on Job inputs
+par(mfrow=c(2,2))
+hist(data$AGE, col = "royalblue", xlab = "AGE", main = "Histogram of AGE")
+hist(data$YOJ, col = "red", xlab = "YOJ", main = "Histogram of YOJ")
+boxplot(data$AGE, col = "skyblue", main = "Boxplot of AGE")
+boxplot(data$YOJ, col = "orangered", main = "Boxplot of YOJ")
+par(mfrow=c(1,1))
+
+# Income and Home Value inputs
+par(mfrow=c(2,2))
+hist(data$INCOME, col = "royalblue", xlab = "INCOME", main = "Histogram of INCOME")
+hist(data$HOME_VAL, col = "red", xlab = "HOME_VAL", main = "Histogram of HOME_VAL")
+boxplot(data$INCOME, col = "skyblue", main = "Boxplot of INCOME")
+boxplot(data$HOME_VAL, col = "orangered", main = "Boxplot of HOME_VAL")
+par(mfrow=c(1,1))
+
+# Bluebook home value and old claim amount inputs
+par(mfrow=c(2,2))
+hist(data$BLUEBOOK, col = "royalblue", xlab = "BLUEBOOK", main = "Histogram of BLUEBOOK")
+hist(data$OLDCLAIM, col = "red", xlab = "OLDCLAIM", main = "Histogram of OLDCLAIM")
+boxplot(data$BLUEBOOK, col = "skyblue", main = "Boxplot of BLUEBOOK")
+boxplot(data$OLDCLAIM, col = "orangered", main = "Boxplot of OLDCLAIM")
+par(mfrow=c(1,1))
+
+# MVR points and car age in years inputs
+par(mfrow=c(2,2))
+hist(data$MVR_PTS, col = "royalblue", xlab = "MVR_PTS", main = "Histogram of MVR_PTS")
+hist(data$CAR_AGE, col = "red", xlab = "CAR_AGE", main = "Histogram of CAR_AGE")
+boxplot(data$MVR_PTS, col = "skyblue", main = "Boxplot of MVR_PTS")
+boxplot(data$CAR_AGE, col = "orangered", main = "Boxplot of CAR_AGE")
+par(mfrow=c(1,1))
+
+# Explore correlation between input variables
+c = na.omit(data)
+c1 = cor(c[sapply(c, is.numeric)])
+corrplot(c1, method = "square")
+
+```
+### Part 3: Data Preparation
+This portion of the script is to prepare the data for the models. Flag variables are created to denote where any missing values have been replaced or imputed with the median value. To compute the median replacement values, the na.aggregate function is applied to impute based on other relevant input variables. Variables for education, income, home value, age, and old claims are put into bins to evaluate the effectiveness in the model. Finally, several squared inputs and interaction terms for home value, income, and bluebook value are created. The same steps are then performed on the testing dataset to ensure consistency.
+```{r}
+### Training: Fix NA's and replace with median value. Create FLAG variables for missing values
+data$AGE_FLAG = as.factor(ifelse(is.na(data$AGE), 1, 0))
+data$AGE[is.na(data$AGE)] = median(data$AGE, na.rm = "TRUE")
+
+# Years on Job
+# Input missing values from median of Job
+data$YOJ_FLAG = as.factor(ifelse(is.na(data$YOJ), 1, 0))
+data$YOJ = na.aggregate(data$YOJ, data$JOB, median, na.rm = TRUE)
+
+# Income
+# Input missing values from median of Job
+data$INCOME_FLAG = as.factor(ifelse(is.na(data$INCOME), 1, 0))
+data$INCOME = na.aggregate(data$INCOME, data$JOB, median(), na.rm = TRUE)
+
+# Home Value
+# Input missing values from median of job
+data$HOME_VAL_FLAG = as.factor(ifelse(is.na(data$HOME_VAL), 1, 0))
+data$HOME_VAL = na.aggregate(data$HOME_VAL, data$JOB, median, na.rm = TRUE)
+
+# Car age in years
+data$CAR_AGE[data$CAR_AGE < 0 ] = NA
+data$CAR_AGE_FLAG = as.factor(ifelse(is.na(data$CAR_AGE), 1, 0))
+data$CAR_AGE = na.aggregate(data$CAR_AGE, data$CAR_TYPE, median, na.rm = TRUE)
+
+# Old claims
+data$OLDCLAIM_FLAG = as.factor(ifelse(is.na(data$OLDCLAIM), 1, 0))
+data$OLDCLAIM = ifelse(data$CAR_AGE < 5 & !is.na(data$CAR_AGE),0,data$OLDCLAIM)
+data$OLDCLAIM = na.aggregate(data$OLDCLAIM, data$CAR_AGE, mean, na.rm = TRUE)
+
+### Training: Create imputed variables and bin variables
+data$HOME_OWNER = as.factor(ifelse(data$HOME_VAL == 0, 0, 1))
+
+# Create squared roots for larger numeric values
+data$SQRT_TRAVTIME = sqrt(data$TRAVTIME)
+data$SQRT_BLUEBOOK = sqrt(data$BLUEBOOK)
+data$SQRT_HOME_VAL = sqrt(data$HOME_VAL)
+
+# Bin Income using 1st and 3rd quantiles. Separate NA and Zero values. 
+data$INCOME_bin[data$INCOME == 0] = "Zero"
+data$INCOME_bin[data$INCOME > 0 & data$INCOME < quantile(data$INCOME, c(.25))] = "Low"
+data$INCOME_bin[data$INCOME >= quantile(data$INCOME, c(.25)) & data$INCOME < quantile(data$INCOME, c(.75))] = "Medium"
+data$INCOME_bin[data$INCOME >= quantile(data$INCOME, c(.75))] = "High"
+data$INCOME_bin[data$INCOME_FLAG == 1] = "NA"
+data$INCOME_bin = factor(data$INCOME_bin)
+data$INCOME_bin = factor(data$INCOME_bin, levels=c("NA","Zero","Low","Medium","High"))
+
+# Bin Education into 3 Groups
+data$EDUCATION_bin[data$EDUCATION == "<High School" | data$EDUCATION == "z_High School"] = "High School or Less"
+data$EDUCATION_bin[data$EDUCATION == "Bachelors" ] = "Bachelors"
+data$EDUCATION_bin[data$EDUCATION == "PhD" | data$EDUCATION == "Masters"] = "Advanced Degree"
+data$EDUCATION_bin = factor(data$EDUCATION_bin)
+data$EDUCATION_bin = factor(data$EDUCATION_bin, levels = c("High School or Less", "Bachelors", "Advanced Degree"))
+
+# Bin Home Value into 4 Groups
+data$HOME_VAL_bin[data$HOME_VAL == 0] = "No Home"
+data$HOME_VAL_bin[data$HOME_VAL > 0 & data$HOME_VAL < 150000] = "Low"
+data$HOME_VAL_bin[data$HOME_VAL >= 150000 & data$HOME_VAL < 300000] = "Medium"
+data$HOME_VAL_bin[data$HOME_VAL >= 300000] = "High"
+data$HOME_VAL_bin = factor(data$HOME_VAL_bin)
+data$HOME_VAL_bin = factor(data$HOME_VAL_bin, levels = c("No Home", "Low", "Medium", "High"))
+
+# Bin Age into 5 Groups
+data$AGE_bin[data$AGE >= 16 & data$AGE <= 19] = "Teenager"
+data$AGE_bin[data$AGE >= 20 & data$AGE <= 26] = "Young Adult"
+data$AGE_bin[data$AGE >= 27 & data$AGE <= 43] = "Adult"
+data$AGE_bin[data$AGE >= 44 & data$AGE <= 62] = "Gen X"
+data$AGE_bin[data$AGE >= 62] = "62 and over"
+data$AGE_bin = factor(data$AGE_bin)
+data$AGE_bin = factor(data$AGE_bin, levels = c("Teenager", "Young Adult", "Adult", "Gen X", "62 and over"))
+
+# Bin Old Claims into 3 Groups
+data$OLDCLAIM_bin[data$OLDCLAIM == 0] = "No Claims"
+data$OLDCLAIM_bin[data$OLDCLAIM > 0 & data$OLDCLAIM <= quantile(data$OLDCLAIM, c(.75))] = "Low Claims"
+data$OLDCLAIM_bin[data$OLDCLAIM > quantile(data$OLDCLAIM, c(.75))] = "High Claims"
+data$OLDCLAIM_bin = factor(data$OLDCLAIM_bin)
+data$OLDCLAIM_bin = factor(data$OLDCLAIM_bin, levels = c("No Claims", "Low Claims", "High Claims"))
+
+# Confirm data is clean
+summary(data)
+
+```
+The same data preparation steps are performed on the testing dataset below
+``` {r}
+# Age
+test$AGE_FLAG = as.factor(ifelse(is.na(test$AGE), 1, 0))
+test$AGE[is.na(test$AGE)] = median(data$AGE, na.rm = "TRUE")
+
+# Years on Job
+test$YOJ_FLAG = as.factor(ifelse(is.na(test$YOJ), 1, 0))
+test$YOJ = na.aggregate(test$YOJ, test$JOB, median(data$YOJ), na.rm = TRUE)
+
+# Income
+test$INCOME_FLAG = as.factor(ifelse(is.na(test$INCOME), 1, 0))
+test$INCOME = na.aggregate(test$INCOME, test$JOB, median(data$INCOME), na.rm = TRUE)
+
+# Home Value
+test$HOME_VAL_FLAG = as.factor(ifelse(is.na(test$HOME_VAL), 1, 0))
+test$HOME_VAL = na.aggregate(test$HOME_VAL, test$JOB, median(data$HOME_VAL), na.rm = TRUE)
+
+# Car Age
+test$CAR_AGE[test$CAR_AGE < 0 ] = NA
+test$CAR_AGE_FLAG = as.factor(ifelse(is.na(test$CAR_AGE), 1, 0))
+test$CAR_AGE = na.aggregate(test$CAR_AGE, test$CAR_TYPE, median(data$CAR_AGE), na.rm = TRUE)
+
+# Old Claims
+test$OLDCLAIM_FLAG = as.factor(ifelse(is.na(test$OLDCLAIM), 1, 0))
+test$OLDCLAIM = ifelse(test$CAR_AGE < 5 & !is.na(test$CAR_AGE),0,test$OLDCLAIM)
+test$OLDCLAIM = na.aggregate(test$OLDCLAIM, test$CAR_AGE, median(data$OLDCLAIM), na.rm = TRUE)
+
+### Testing: Create imputed variables and bin variables
+test$HOME_OWNER = as.factor(ifelse(test$HOME_VAL == 0, 0, 1))
+
+# Create square root values for large numbers
+test$SQRT_TRAVTIME = sqrt(test$TRAVTIME)
+test$SQRT_BLUEBOOK = sqrt(test$BLUEBOOK)
+test$SQRT_HOME_VAL = sqrt(test$HOME_VAL)
+
+# Bin Income using 1st and 3rd quantiles. Separate NA and Zero values. 
+test$INCOME_bin[test$INCOME == 0] = "Zero"
+test$INCOME_bin[test$INCOME > 0 & test$INCOME < quantile(data$INCOME, c(.25))] = "Low"
+test$INCOME_bin[test$INCOME >= quantile(data$INCOME, c(.25)) & test$INCOME < quantile(data$INCOME, c(.75))] = "Medium"
+test$INCOME_bin[test$INCOME >= quantile(data$INCOME, c(.75))] = "High"
+test$INCOME_bin[test$INCOME_FLAG == 1] = "NA"
+test$INCOME_bin = factor(test$INCOME_bin)
+test$INCOME_bin = factor(test$INCOME_bin, levels=c("NA","Zero","Low","Medium","High"))
+
+# Bin Education into 3 Groups
+test$EDUCATION_bin[test$EDUCATION == "<High School" | test$EDUCATION == "z_High School"] = "High School or Less"
+test$EDUCATION_bin[test$EDUCATION == "Bachelors" ] = "Bachelors"
+test$EDUCATION_bin[test$EDUCATION == "PhD" | test$EDUCATION == "Masters"] = "Advanced Degree"
+test$EDUCATION_bin = factor(test$EDUCATION_bin)
+test$EDUCATION_bin = factor(test$EDUCATION_bin, levels = c("High School or Less", "Bachelors", "Advanced Degree"))
+
+# Bin Home Value into 4 Groups
+test$HOME_VAL_bin[test$HOME_VAL == 0] = "No Home"
+test$HOME_VAL_bin[test$HOME_VAL > 0 & test$HOME_VAL < 150000] = "Low"
+test$HOME_VAL_bin[test$HOME_VAL >= 150000 & test$HOME_VAL < 300000] = "Medium"
+test$HOME_VAL_bin[test$HOME_VAL >= 300000] = "High"
+test$HOME_VAL_bin = factor(test$HOME_VAL_bin)
+test$HOME_VAL_bin = factor(test$HOME_VAL_bin, levels = c("No Home", "Low", "Medium", "High"))
+
+# Bin Age into 5 Groups
+test$AGE_bin[test$AGE >= 16 & test$AGE <= 19] = "Teenager"
+test$AGE_bin[test$AGE >= 20 & test$AGE <= 26] = "Young Adult"
+test$AGE_bin[test$AGE >= 27 & test$AGE <= 43] = "Adult"
+test$AGE_bin[test$AGE >= 44 & test$AGE <= 62] = "Gen X"
+test$AGE_bin[test$AGE >= 62] = "62 and over"
+test$AGE_bin = factor(test$AGE_bin)
+test$AGE_bin = factor(test$AGE_bin, levels = c("Teenager", "Young Adult", "Adult", "Gen X", "62 and over"))
+
+# Bin Old Claims into 3 Groups
+test$OLDCLAIM_bin[test$OLDCLAIM == 0] = "No Claims"
+test$OLDCLAIM_bin[test$OLDCLAIM > 0 & test$OLDCLAIM <= quantile(data$OLDCLAIM, c(.75))] = "Low Claims"
+test$OLDCLAIM_bin[test$OLDCLAIM > quantile(data$OLDCLAIM, c(.75))] = "High Claims"
+test$OLDCLAIM_bin = factor(test$OLDCLAIM_bin)
+test$OLDCLAIM_bin = factor(test$OLDCLAIM_bin, levels = c("No Claims", "Low Claims", "High Claims"))
+
+# Confirm data is clean and no missing observations
+summary(test)
+missmap(data)
+missmap(test)
+```
+### Part 4: Model Development
+The model uses several classification Machine Learning models to compare below:
+1. Logistic Regression
+2. Decision Tree
+3. Decision Tree with Bagging
+4. Random Forest with Bagging
+5. Decision Tree with Boosting
+```{r}
+### Binary Response Model 1: Standard Logistic Regression
+lr = glm(TARGET_FLAG ~ KIDSDRIV + YOJ + PARENT1 + AGE_FLAG + SEX +
+               MSTATUS + JOB + CAR_USE + TIF + CAR_TYPE + HOME_OWNER +
+               CLM_FREQ + REVOKED + MVR_PTS + URBANICITY + DO_KIDS_DRIVE +
+               HOME_OWNER + SQRT_TRAVTIME + BLUEBOOK + SQRT_BLUEBOOK +
+               OLDCLAIM_bin + INCOME_bin + AGE_bin + EDUCATION_bin, data = data, family = binomial())
+summary(lr)
+
+# Calculate ROC Curve and AUC for Model 1
+predicted1 = predict(lr, data, type="response")
+par(mfrow = c(1, 1))
+roc(data$TARGET_FLAG, as.vector(predicted1), percent=F, boot.n=1000, ci.alpha=0.9, stratified=FALSE, 
+    plot=TRUE, grid=TRUE, show.thres=TRUE, legacy.axes = TRUE, reuse.auc = TRUE,print.auc = TRUE, 
+    print.thres.col = "blue", ci=TRUE, ci.type="bars", print.thres.cex = 0.7, 
+    main = paste("ROC curve using","(N = ",nrow(data),")"))
+
+# Confusion Matrix for Model 1
+lrPredict = ifelse(predicted1 > .5, 1, 0)
+lrPredict = as.factor(lrPredict)
+CM1 = confusionMatrix(lrPredict, data$TARGET_FLAG)
+
+### Binary Response Model 2: Standard Decision Tree
+tree = ctree(TARGET_FLAG ~ KIDSDRIV + YOJ + PARENT1 + AGE_FLAG + SEX +
+                 MSTATUS + JOB + CAR_USE + TIF + CAR_TYPE + HOME_OWNER +
+                 CLM_FREQ + REVOKED + MVR_PTS + URBANICITY + DO_KIDS_DRIVE +
+                 HOME_OWNER + SQRT_TRAVTIME + BLUEBOOK + SQRT_BLUEBOOK +
+                 OLDCLAIM_bin + INCOME_bin + AGE_bin + EDUCATION_bin
+                ,data = data)
+
+print(tree)
+plot(tree)
+
+# Confusion Matrix for Model 2
+treePredict = predict(tree, type = "response")
+CM2 = confusionMatrix(treePredict, data$TARGET_FLAG)
+
+### Binary Response Model 3: Decision Tree with Bagging
+tree_bagging = bagging(TARGET_FLAG ~ KIDSDRIV + YOJ + PARENT1 + AGE_FLAG + SEX +
+                   MSTATUS + JOB + CAR_USE + TIF + CAR_TYPE + HOME_OWNER +
+                   CLM_FREQ + REVOKED + MVR_PTS + URBANICITY + DO_KIDS_DRIVE +
+                   HOME_OWNER + SQRT_TRAVTIME + BLUEBOOK + SQRT_BLUEBOOK +
+                   OLDCLAIM_bin + INCOME_bin + AGE_bin + EDUCATION_bin
+                  ,data = data, nbagg = 100, coob = TRUE, control = rpart.control(minsplit = 2, cp = 0))
+
+print(tree_bagging)
+
+# Confusion Matrix for Model 3
+tree_baggingPredict = predict(tree_bagging, type = "class")
+CM3 = confusionMatrix(tree_baggingPredict, data$TARGET_FLAG)
+
+### Binary Response Model 4: Random Forests with Bagging
+forest = randomForest(TARGET_FLAG ~ KIDSDRIV + YOJ + PARENT1 + SEX + DO_KIDS_DRIVE + 
+                        MSTATUS + JOB + CAR_USE + TIF + CAR_TYPE + HOME_OWNER +
+                        CLM_FREQ + REVOKED + MVR_PTS + URBANICITY +
+                        HOME_OWNER + SQRT_TRAVTIME + SQRT_BLUEBOOK +
+                        OLDCLAIM_bin + INCOME_bin + AGE_bin + EDUCATION_bin
+                      ,data = data, ntree=150, mtry = 3)
+                      
+print(forest)
+varImpPlot(forest)
+
+# Confusion Matrix for Model 4
+forestPredict = predict(forest, type = "class")
+CM4 = confusionMatrix(forestPredict, data$TARGET_FLAG)
+
+### Binary Response Model 5: Decision Tree with Boosting
+
+tree_boost = gbm(TARGET_FLAG ~ KIDSDRIV + YOJ + PARENT1 + SEX +
+               MSTATUS + JOB + CAR_USE + TIF + CAR_TYPE + HOME_OWNER +
+               CLM_FREQ + REVOKED + MVR_PTS + URBANICITY + DO_KIDS_DRIVE +
+               HOME_OWNER + SQRT_TRAVTIME + BLUEBOOK + SQRT_BLUEBOOK +
+               OLDCLAIM_bin + INCOME_bin + AGE_bin + EDUCATION_bin
+              ,data = data, n.trees = 500, distribution = 'gaussian',
+              cv.folds = 5, shrinkage = .1)
+
+summary(tree_boost)
+print(tree_boost)
+
+
+tree_boostPredict = predict.gbm(tree_boost, type = "response",n.trees = 500)
+
+
+```
+### Part 5: Model Evaluation
+The portion of the script is used to compare the results of the five models developed above. The following evaluation criteria are used for model evaluation:
+1. Confusion Matrix
+2. KS Statistic
+3. AUC/ROC Curve
+
+```{r, results = 'hide'}
+# ks statistic
+ks_stat(actuals=data$TARGET_FLAG, predictedScores=lrPredict)
+ks_stat(actuals=data$TARGET_FLAG, predictedScores=treePredict)
+ks_stat(actuals=data$TARGET_FLAG, predictedScores=tree_baggingPredict)
+ks_stat(actuals=data$TARGET_FLAG, predictedScores=forestPredict)
+ks_stat(actuals=data$TARGET_FLAG, predictedScores=tree_boostPredict)
+
+
+# Compare Confusion Matrices
+
+df = data.frame(row.names = c("Accuracy", "Sensitivity" ,"Specificity", "Pos Pred Value", "Neg Pred Value","Precision", "Recall", "F1", "Prevalence", "Detection Rate", "Detection Prevelance", "Balanced Accuracy"))
+
+df$CM1 = c(CM1$overall[1], CM1$byClass[1:11])
+df$CM2 = c(CM2$overall[1], CM2$byClass[1:11])
+df$CM3 = c(CM3$overall[1], CM3$byClass[1:11])
+df$CM4 = c(CM4$overall[1], CM4$byClass[1:11])
+
+
+df
+```
+### Part 6: Model Selection and Testing Prediction
+Based on the results of the model evaluation criteria above, I am select the fourth model that uses a Random Forest with bagging applied to apply to the test dataset.
+
+```{r}
+# Apply the prediction to the testing dataset
+testPredict = predict(forest, newdata = test, type = "class")
+
+claims = sum(as.numeric(testPredict[testPredict==1]))
+
+print("The prediction on the testing dataset indicates the following number of claims out of 2,468 observations:")
+print(claims)
+
+```
